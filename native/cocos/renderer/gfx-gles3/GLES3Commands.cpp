@@ -833,7 +833,7 @@ void cmdFuncGLES3CreateTexture(GLES3Device *device, GLES3GPUTexture *gpuTexture)
         return;
     }
 
-    if (!device->isTextureExclusive(gpuTexture->format) && (gpuTexture->glSamples > 1 || hasAllFlags(TextureUsage::COLOR_ATTACHMENT | TextureUsage::DEPTH_STENCIL_ATTACHMENT, gpuTexture->usage))) {
+    if (device->isTextureExclusive(gpuTexture->format) && (gpuTexture->glSamples > 1 || hasAllFlags(TextureUsage::COLOR_ATTACHMENT | TextureUsage::DEPTH_STENCIL_ATTACHMENT, gpuTexture->usage))) {
         switch (gpuTexture->type) {
             case TextureType::TEX2D: {
                 gpuTexture->glTarget = GL_RENDERBUFFER;
@@ -1559,32 +1559,32 @@ static void doCreateFramebufferInstance(GLES3Device *device, GLES3GPUFramebuffer
                                         uint32_t depthStencil, GLES3GPUFramebuffer::Framebuffer *outFBO,
                                         const uint32_t *resolves = nullptr, uint32_t depthStencilResolve = INVALID_BINDING) {
     GLES3GPUSwapchain *swapchain{getSwapchainIfExists(gpuFBO->gpuColorViews, colors.data(), colors.size())};
-    if (!swapchain) {
-        const GLES3GPUTextureView *depthStencilTextureView = nullptr;
-        if (depthStencil != INVALID_BINDING) {
-            depthStencilTextureView = depthStencil < gpuFBO->gpuColorViews.size()
-                                          ? gpuFBO->gpuColorViews[depthStencil]
-                                          : gpuFBO->gpuDepthStencilView;
-        }
-        const GLES3GPUTextureView *depthStencilResolveTextureView = nullptr;
-        if (depthStencilResolve != INVALID_BINDING) {
-            depthStencilResolveTextureView = depthStencilResolve < gpuFBO->gpuColorViews.size()
-                                                 ? gpuFBO->gpuColorViews[depthStencilResolve]
-                                                 : gpuFBO->gpuDepthStencilView;
-        }
+    const GLES3GPUTextureView *depthStencilTextureView = nullptr;
+    if (depthStencil != INVALID_BINDING) {
+        depthStencilTextureView = depthStencil < gpuFBO->gpuColorViews.size()
+                                      ? gpuFBO->gpuColorViews[depthStencil]
+                                      : gpuFBO->gpuDepthStencilView;
+    }
+    const GLES3GPUTextureView *depthStencilResolveTextureView = nullptr;
+    if (depthStencilResolve != INVALID_BINDING) {
+        depthStencilResolveTextureView = depthStencilResolve < gpuFBO->gpuColorViews.size()
+                                             ? gpuFBO->gpuColorViews[depthStencilResolve]
+                                             : gpuFBO->gpuDepthStencilView;
+    }
 
-        outFBO->framebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorViews, colors.data(), utils::toUint(colors.size()),
-                                                           depthStencilTextureView, resolves, depthStencilResolveTextureView, &outFBO->resolveMask));
-        if (outFBO->resolveMask) {
-            size_t resolveCount = outFBO->resolveMask & GL_COLOR_BUFFER_BIT ? utils::toUint(colors.size()) : 0U;
-            GLES3GPUSwapchain *resolveSwapchain{getSwapchainIfExists(gpuFBO->gpuColorViews, resolves, resolveCount)};
-            if (!resolveSwapchain) {
-                outFBO->resolveFramebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorViews, resolves, resolveCount, depthStencilResolveTextureView));
-            } else {
-                outFBO->resolveFramebuffer.initialize(resolveSwapchain);
-            }
+    outFBO->framebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorViews, colors.data(), utils::toUint(colors.size()),
+                                                       depthStencilTextureView, resolves, depthStencilResolveTextureView, &outFBO->resolveMask));
+    if (outFBO->resolveMask) {
+        size_t resolveCount = outFBO->resolveMask & GL_COLOR_BUFFER_BIT ? utils::toUint(colors.size()) : 0U;
+        GLES3GPUSwapchain *resolveSwapchain{getSwapchainIfExists(gpuFBO->gpuColorViews, resolves, resolveCount)};
+        if (!resolveSwapchain) {
+            outFBO->resolveFramebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorViews, resolves, resolveCount, depthStencilResolveTextureView));
+        } else {
+            outFBO->resolveFramebuffer.initialize(resolveSwapchain);
         }
-    } else {
+    }
+
+    if (swapchain) {
         outFBO->framebuffer.initialize(swapchain);
     }
 }
@@ -2119,6 +2119,25 @@ void cmdFuncGLES3EndRenderPass(GLES3Device *device) {
         invalidateTarget = GL_READ_FRAMEBUFFER;
     }
 
+    for (auto *colorImg : gpuFramebuffer->gpuColorViews) {
+        if (colorImg->gpuTexture->swapchain) {
+            TextureBlit region;
+            auto *blitSrc = colorImg->gpuTexture;
+            auto *blitDst = blitSrc;
+            region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+            region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+            cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        }
+    }
+    if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain) {
+        TextureBlit region;
+        auto *blitSrc = gpuFramebuffer->gpuDepthStencilView->gpuTexture;
+        auto *blitDst = blitSrc;
+        region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+        region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+        cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+    }
+
     uint32_t glAttachmentIndex = 0U;
     if (gpuFramebuffer->usesFBF) {
         if (isTheLastSubpass) {
@@ -2379,8 +2398,8 @@ void cmdFuncGLES3BindState(GLES3Device *device, GLES3GPUPipelineState *gpuPipeli
             const GLES3GPUDescriptor &gpuDescriptor = gpuDescriptorSet->gpuDescriptors[descriptorIndex];
 
             if (!gpuDescriptor.gpuBuffer) {
-                //CC_LOG_ERROR("Buffer binding '%s' at set %d binding %d is not bounded",
-                //             glBuffer.name.c_str(), glBuffer.set, glBuffer.binding);
+                // CC_LOG_ERROR("Buffer binding '%s' at set %d binding %d is not bounded",
+                //              glBuffer.name.c_str(), glBuffer.set, glBuffer.binding);
                 continue;
             }
 
@@ -2435,8 +2454,8 @@ void cmdFuncGLES3BindState(GLES3Device *device, GLES3GPUPipelineState *gpuPipeli
                 auto unit = static_cast<uint32_t>(glSamplerTexture.units[u]);
 
                 if (!gpuDescriptor->gpuTextureView || !gpuDescriptor->gpuTextureView->gpuTexture || !gpuDescriptor->gpuSampler) {
-                    //CC_LOG_ERROR("Sampler texture '%s' at binding %d set %d index %d is not bounded",
-                    //             glSamplerTexture.name.c_str(), glSamplerTexture.set, glSamplerTexture.binding, u);
+                    // CC_LOG_ERROR("Sampler texture '%s' at binding %d set %d index %d is not bounded",
+                    //              glSamplerTexture.name.c_str(), glSamplerTexture.set, glSamplerTexture.binding, u);
                     continue;
                 }
 
@@ -2480,8 +2499,8 @@ void cmdFuncGLES3BindState(GLES3Device *device, GLES3GPUPipelineState *gpuPipeli
                 auto unit = static_cast<uint32_t>(glImage.units[u]);
 
                 if (!gpuDescriptor->gpuTextureView || !gpuDescriptor->gpuTextureView->gpuTexture) {
-                    //CC_LOG_ERROR("Storage image '%s' at binding %d set %d index %d is not bounded",
-                    //             glImage.name.c_str(), glImage.set, glImage.binding, u);
+                    // CC_LOG_ERROR("Storage image '%s' at binding %d set %d index %d is not bounded",
+                    //              glImage.name.c_str(), glImage.set, glImage.binding, u);
                     continue;
                 }
 

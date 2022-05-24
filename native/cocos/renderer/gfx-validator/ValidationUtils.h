@@ -170,6 +170,9 @@ void DeviceResourceTracker<Resource, Enable>::checkEmpty() {
     // and look up the resource initialization stacktrace in `resources[i].initStack`.
     // Note: capturing stacktrace is a painfully time-consuming process,
     // so better to uncomment the exact type of resource that is leaking rather than toggle them all at once.
+    for (auto &resource : resources) {
+        CC_LOG_INFO("Resource leaked:\n%s\n", static_cast<ResourceRecord>(resource).initStack.c_str());
+    }
     CC_ASSERT(resources.empty()); // Resource leaked.
 }
 

@@ -27,7 +27,9 @@
 
 #include "GLES2Commands.h"
 #include "GLES2Device.h"
+#include "gfx-base/GFXDef-common.h"
 #include "gfx-gles-common/GLESCommandPool.h"
+#include "gfx-gles-common/gles2w.h"
 
 #define BUFFER_OFFSET(idx) (static_cast<char *>(0) + (idx))
 
@@ -599,7 +601,7 @@ void cmdFuncGLES2CreateTexture(GLES2Device *device, GLES2GPUTexture *gpuTexture)
         return;
     }
 
-    if (!device->isTextureExclusive(gpuTexture->format) && (gpuTexture->glSamples > 1 || hasAllFlags(TextureUsage::COLOR_ATTACHMENT | TextureUsage::DEPTH_STENCIL_ATTACHMENT, gpuTexture->usage))) {
+    if (device->isTextureExclusive(gpuTexture->format) && (gpuTexture->glSamples > 1 || hasAllFlags(TextureUsage::COLOR_ATTACHMENT | TextureUsage::DEPTH_STENCIL_ATTACHMENT, gpuTexture->usage))) {
         gpuTexture->glInternalFmt = mapGLInternalFormat(gpuTexture->format);
         switch (gpuTexture->type) {
             case TextureType::TEX2D: {
@@ -1406,32 +1408,32 @@ static void doCreateFramebufferInstance(GLES2Device *device, GLES2GPUFramebuffer
                                         const uint32_t *resolves = nullptr, uint32_t depthStencilResolve = INVALID_BINDING) {
     GLES2GPUSwapchain *swapchain{getSwapchainIfExists(gpuFBO->gpuColorTextures, colors.data(), colors.size())};
 
-    if (!swapchain) {
-        const GLES2GPUTexture *depthStencilTexture = nullptr;
-        if (depthStencil != INVALID_BINDING) {
-            depthStencilTexture = depthStencil < gpuFBO->gpuColorTextures.size()
-                                      ? gpuFBO->gpuColorTextures[depthStencil]
-                                      : gpuFBO->gpuDepthStencilTexture;
-        }
-        const GLES2GPUTexture *depthStencilResolveTexture = nullptr;
-        if (depthStencilResolve != INVALID_BINDING) {
-            depthStencilResolveTexture = depthStencilResolve < gpuFBO->gpuColorTextures.size()
-                                             ? gpuFBO->gpuColorTextures[depthStencilResolve]
-                                             : gpuFBO->gpuDepthStencilTexture;
-        }
+    const GLES2GPUTexture *depthStencilTexture = nullptr;
+    if (depthStencil != INVALID_BINDING) {
+        depthStencilTexture = depthStencil < gpuFBO->gpuColorTextures.size()
+                                  ? gpuFBO->gpuColorTextures[depthStencil]
+                                  : gpuFBO->gpuDepthStencilTexture;
+    }
+    const GLES2GPUTexture *depthStencilResolveTexture = nullptr;
+    if (depthStencilResolve != INVALID_BINDING) {
+        depthStencilResolveTexture = depthStencilResolve < gpuFBO->gpuColorTextures.size()
+                                         ? gpuFBO->gpuColorTextures[depthStencilResolve]
+                                         : gpuFBO->gpuDepthStencilTexture;
+    }
 
-        outFBO->framebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorTextures, colors.data(), colors.size(),
-                                                           depthStencilTexture, resolves, depthStencilResolveTexture, &outFBO->resolveMask));
-        if (outFBO->resolveMask) {
-            size_t resolveCount = outFBO->resolveMask & GL_COLOR_BUFFER_BIT ? colors.size() : 0U;
-            GLES2GPUSwapchain *resolveSwapchain{getSwapchainIfExists(gpuFBO->gpuColorTextures, resolves, resolveCount)};
-            if (!resolveSwapchain) {
-                outFBO->resolveFramebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorTextures, resolves, resolveCount, depthStencilResolveTexture));
-            } else {
-                outFBO->resolveFramebuffer.initialize(resolveSwapchain);
-            }
+    outFBO->framebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorTextures, colors.data(), colors.size(),
+                                                       depthStencilTexture, resolves, depthStencilResolveTexture, &outFBO->resolveMask));
+    if (outFBO->resolveMask) {
+        size_t resolveCount = outFBO->resolveMask & GL_COLOR_BUFFER_BIT ? colors.size() : 0U;
+        GLES2GPUSwapchain *resolveSwapchain{getSwapchainIfExists(gpuFBO->gpuColorTextures, resolves, resolveCount)};
+        if (!resolveSwapchain) {
+            outFBO->resolveFramebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorTextures, resolves, resolveCount, depthStencilResolveTexture));
+        } else {
+            outFBO->resolveFramebuffer.initialize(resolveSwapchain);
         }
-    } else {
+    }
+
+    if (swapchain) {
         outFBO->framebuffer.initialize(swapchain);
     }
 }
@@ -1793,6 +1795,25 @@ void cmdFuncGLES2EndRenderPass(GLES2Device *device) {
         }
 
         skipDiscard = true; // framebuffer was already stored
+    }
+
+    for (auto *colorImg : gpuFramebuffer->gpuColorTextures) {
+        if (colorImg->swapchain) {
+            TextureBlit region;
+            auto *blitSrc = colorImg;
+            auto *blitDst = blitSrc;
+            region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+            region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+            cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        }
+    }
+    if (gpuFramebuffer->gpuDepthStencilTexture->swapchain) {
+        TextureBlit region;
+        auto *blitSrc = gpuFramebuffer->gpuDepthStencilTexture;
+        auto *blitDst = blitSrc;
+        region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+        region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+        cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
     }
 
     uint32_t glAttachmentIndex = 0U;
@@ -2188,7 +2209,7 @@ void cmdFuncGLES2BindState(GLES2Device *device, GLES2GPUPipelineState *gpuPipeli
 
                 GLES2GPUTexture *gpuTexture = gpuDescriptor->gpuTexture;
                 GLuint glTexture = gpuTexture->glTexture;
-                CC_ASSERT(!gpuTexture->glRenderbuffer); // Can not sample renderbuffers!
+                // CC_ASSERT(!gpuTexture->glRenderbuffer); // Can not sample renderbuffers!
 
                 if (cache->glTextures[unit] != glTexture) {
                     if (cache->texUint != unit) {
@@ -2742,7 +2763,24 @@ void cmdFuncGLES2BlitTexture(GLES2Device *device, GLES2GPUTexture *gpuTextureSrc
         cache->glFramebuffer = dstFramebuffer;
     }
 
+    if (hasFlag(gpuTextureSrc->usage, TextureUsage::COLOR_ATTACHMENT)) {
+        glColorMask(1, 1, 1, 1);
+    } else {
+        glColorMask(0, 0, 0, 0);
+    }
+    if (hasFlag(gpuTextureSrc->usage, TextureUsage::DEPTH_STENCIL_ATTACHMENT)) {
+        glDepthMask(1);
+        // glStencilMask(1);
+    } else {
+        glDepthMask(0);
+        // glStencilMask(0);
+    }
+
     device->blitManager()->draw(gpuTextureSrc, gpuTextureDst, regions, count, filter);
+
+    glColorMask(1, 1, 1, 1);
+    glDepthMask(1);
+    glStencilMask(1);
 }
 
 void cmdFuncGLES2ExecuteCmds(GLES2Device *device, GLES2CmdPackage *cmdPackage) {

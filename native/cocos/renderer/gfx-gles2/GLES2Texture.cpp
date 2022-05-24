@@ -119,8 +119,15 @@ void GLES2Texture::doInit(const SwapchainTextureInfo & /*info*/) {
     _gpuTexture->samples = _info.samples;
     _gpuTexture->flags = _info.flags;
     _gpuTexture->size = _size;
-    _gpuTexture->memoryless = true;
+    _gpuTexture->memoryless = false;
     _gpuTexture->swapchain = static_cast<GLES2Swapchain *>(_swapchain)->gpuSwapchain();
+
+    cmdFuncGLES2CreateTexture(GLES2Device::getInstance(), _gpuTexture);
+
+    if (!_gpuTexture->memoryless) {
+        GLES2Device::getInstance()->getMemoryStatus().textureSize += _size;
+        CC_PROFILE_MEMORY_INC(Texture, _size);
+    }
 }
 
 } // namespace gfx

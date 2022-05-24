@@ -290,7 +290,7 @@ public:
             _width = info.width;
             _height = info.height;
         }
-        inline GLuint getFramebuffer() const { return swapchain ? swapchain->glFramebuffer : _glFramebuffer; }
+        inline GLuint getFramebuffer() const { return _glFramebuffer; }
         inline uint32_t getWidth() const { return swapchain ? swapchain->gpuColorTexture->width : _width; }
         inline uint32_t getHeight() const { return swapchain ? swapchain->gpuColorTexture->height : _height; }
 

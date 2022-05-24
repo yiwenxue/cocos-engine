@@ -271,13 +271,14 @@ void GLES2Device::initFormatFeature() {
     // builtin formatFeatures
     _formatFeatures[toNumber(Format::RGB8)] = completeFeature;
     _formatFeatures[toNumber(Format::R5G6B5)] = completeFeature;
-    _textureExclusive[toNumber(Format::R5G6B5)] = false;
-
     _formatFeatures[toNumber(Format::RGBA8)] = completeFeature;
     _formatFeatures[toNumber(Format::RGBA4)] = completeFeature;
-    _textureExclusive[toNumber(Format::RGBA4)] = false;
-
     _formatFeatures[toNumber(Format::RGB5A1)] = completeFeature;
+
+    _textureExclusive[toNumber(Format::RGB8)] = false;
+    _textureExclusive[toNumber(Format::R5G6B5)] = false;
+    _textureExclusive[toNumber(Format::RGBA8)] = false;
+    _textureExclusive[toNumber(Format::RGBA4)] = false;
     _textureExclusive[toNumber(Format::RGB5A1)] = false;
 
     _formatFeatures[toNumber(Format::R8)] |= FormatFeature::VERTEX_ATTRIBUTE;
