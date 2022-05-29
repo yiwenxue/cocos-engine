@@ -1408,6 +1408,25 @@ static void doCreateFramebufferInstance(GLES2Device *device, GLES2GPUFramebuffer
                                         const uint32_t *resolves = nullptr, uint32_t depthStencilResolve = INVALID_BINDING) {
     GLES2GPUSwapchain *swapchain{getSwapchainIfExists(gpuFBO->gpuColorTextures, colors.data(), colors.size())};
 
+    bool pureOnscreen = true;
+
+    bool directOnscreen = true;
+    for (auto *colorImg : gpuFBO->gpuColorTextures) {
+        if (colorImg->swapchain == nullptr || !colorImg->memoryless) {
+            directOnscreen = false;
+            break;
+        }
+    }
+
+    if (gpuFBO->gpuDepthStencilTexture->swapchain == nullptr || !gpuFBO->gpuDepthStencilTexture->memoryless) {
+        directOnscreen = false;
+    }
+
+    if (directOnscreen) {
+        outFBO->framebuffer.initialize(swapchain);
+        return;
+    }
+
     const GLES2GPUTexture *depthStencilTexture = nullptr;
     if (depthStencil != INVALID_BINDING) {
         depthStencilTexture = depthStencil < gpuFBO->gpuColorTextures.size()
@@ -1420,7 +1439,6 @@ static void doCreateFramebufferInstance(GLES2Device *device, GLES2GPUFramebuffer
                                          ? gpuFBO->gpuColorTextures[depthStencilResolve]
                                          : gpuFBO->gpuDepthStencilTexture;
     }
-
     outFBO->framebuffer.initialize(doCreateFramebuffer(device, gpuFBO->gpuColorTextures, colors.data(), colors.size(),
                                                        depthStencilTexture, resolves, depthStencilResolveTexture, &outFBO->resolveMask));
     if (outFBO->resolveMask) {
@@ -1797,23 +1815,38 @@ void cmdFuncGLES2EndRenderPass(GLES2Device *device) {
         skipDiscard = true; // framebuffer was already stored
     }
 
+    // blit only if the fbo is not a pure on screen fbo
+    bool directOnscreen = true;
     for (auto *colorImg : gpuFramebuffer->gpuColorTextures) {
-        if (colorImg->swapchain) {
-            TextureBlit region;
-            auto *blitSrc = colorImg;
-            auto *blitDst = blitSrc;
-            region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-            region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-            cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        if (colorImg->swapchain == nullptr || !colorImg->memoryless) {
+            directOnscreen = false;
+            break;
         }
     }
-    if (gpuFramebuffer->gpuDepthStencilTexture->swapchain) {
-        TextureBlit region;
-        auto *blitSrc = gpuFramebuffer->gpuDepthStencilTexture;
-        auto *blitDst = blitSrc;
-        region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-        region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-        cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+
+    if (gpuFramebuffer->gpuDepthStencilTexture->swapchain == nullptr || !gpuFramebuffer->gpuDepthStencilTexture->memoryless) {
+        directOnscreen = false;
+    }
+
+    if (!directOnscreen) {
+        for (auto *colorImg : gpuFramebuffer->gpuColorTextures) {
+            if (colorImg->swapchain) {
+                TextureBlit region;
+                auto *blitSrc = colorImg;
+                auto *blitDst = blitSrc;
+                region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+                region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+                cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+            }
+        }
+        // if (gpuFramebuffer->gpuDepthStencilTexture->swapchain) {
+        //     TextureBlit region;
+        //     auto *blitSrc = gpuFramebuffer->gpuDepthStencilTexture;
+        //     auto *blitDst = blitSrc;
+        //     region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+        //     region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+        //     cmdFuncGLES2BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        // }
     }
 
     uint32_t glAttachmentIndex = 0U;

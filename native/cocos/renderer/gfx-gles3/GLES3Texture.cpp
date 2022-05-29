@@ -140,11 +140,14 @@ void GLES3Texture::doInit(const SwapchainTextureInfo & /*info*/) {
     _gpuTexture->samples = _info.samples;
     _gpuTexture->flags = _info.flags;
     _gpuTexture->size = _size;
-    _gpuTexture->memoryless = false;
+    _gpuTexture->memoryless = true;
     _gpuTexture->swapchain = static_cast<GLES3Swapchain *>(_swapchain)->gpuSwapchain();
     _gpuTextureView = ccnew GLES3GPUTextureView;
 
-    cmdFuncGLES3CreateTexture(GLES3Device::getInstance(), _gpuTexture);
+    if (ENABLE_DEPTH) {
+        _gpuTexture->memoryless = false;
+        cmdFuncGLES3CreateTexture(GLES3Device::getInstance(), _gpuTexture);
+    }
 
     if (!_gpuTexture->memoryless) {
         GLES3Device::getInstance()->getMemoryStatus().textureSize += _size;

@@ -30,6 +30,7 @@ import {
     FormatInfos, FormatSize, LoadOp, MemoryUsageBit, SampleCount, ShaderStageFlagBit, TextureFlagBit,
     Color, Rect, BufferTextureCopy, BufferSource, DrawInfo, IndirectBuffer, UniformBlock, DynamicStates,
     UniformSamplerTexture,
+    TextureBlit,
 } from '../base/define';
 import { WebGL2EXT } from './webgl2-define';
 import { WebGL2CommandAllocator } from './webgl2-command-allocator';
@@ -657,6 +658,15 @@ export class WebGL2CmdBeginRenderPass extends WebGL2CmdObject {
     }
 }
 
+export class WebGL2CmdEndRenderPass extends WebGL2CmdObject {
+    constructor () {
+        super(WebGL2Cmd.END_RENDER_PASS);
+    }
+
+    public clear () {
+    }
+}
+
 export class WebGL2CmdBindStates extends WebGL2CmdObject {
     public gpuPipelineState: IWebGL2GPUPipelineState | null = null;
     public gpuInputAssembler: IWebGL2GPUInputAssembler | null = null;
@@ -722,6 +732,7 @@ export class WebGL2CmdCopyBufferToTexture extends WebGL2CmdObject {
 export class WebGL2CmdPackage {
     public cmds: CachedArray<WebGL2Cmd> = new CachedArray(1);
     public beginRenderPassCmds: CachedArray<WebGL2CmdBeginRenderPass> = new CachedArray(1);
+    public endRenderPassCmds: CachedArray<WebGL2CmdEndRenderPass> = new CachedArray(1);
     public bindStatesCmds: CachedArray<WebGL2CmdBindStates> = new CachedArray(1);
     public drawCmds: CachedArray<WebGL2CmdDraw> = new CachedArray(1);
     public updateBufferCmds: CachedArray<WebGL2CmdUpdateBuffer> = new CachedArray(1);
@@ -731,6 +742,11 @@ export class WebGL2CmdPackage {
         if (this.beginRenderPassCmds.length) {
             allocator.beginRenderPassCmdPool.freeCmds(this.beginRenderPassCmds);
             this.beginRenderPassCmds.clear();
+        }
+
+        if (this.endRenderPassCmds.length) {
+            allocator.endRenderPassCmdPool.freeCmds(this.endRenderPassCmds);
+            this.endRenderPassCmds.clear();
         }
 
         if (this.bindStatesCmds.length) {
@@ -1036,7 +1052,7 @@ export function WebGL2CmdFuncCreateTexture (device: WebGL2Device, gpuTexture: IW
     switch (gpuTexture.type) {
     case TextureType.TEX2D: {
         gpuTexture.glTarget = gl.TEXTURE_2D;
-        if (gpuTexture.isSwapchainTexture) break;
+        // if (gpuTexture.isSwapchainTexture) break;
 
         const maxSize = Math.max(w, h);
         if (maxSize > device.capabilities.maxTextureSize) {
@@ -1292,12 +1308,31 @@ export function WebGL2CmdFuncDestroySampler (device: WebGL2Device, gpuSampler: I
 }
 
 export function WebGL2CmdFuncCreateFramebuffer (device: WebGL2Device, gpuFramebuffer: IWebGL2GPUFramebuffer) {
+    let pureOnscreen = true;
+
+    // color on | depth on --> return
+    // color on | depth off --> create fbo
+    // color off | fdepth off --> create fbo
+
     for (let i = 0; i < gpuFramebuffer.gpuColorViews.length; ++i) {
         const tex = gpuFramebuffer.gpuColorViews[i].gpuTexture;
         if (tex.isSwapchainTexture) {
             gpuFramebuffer.isOffscreen = false;
-            return;
+        } else {
+            pureOnscreen = false;
         }
+    }
+
+    if (gpuFramebuffer.gpuDepthStencilView) {
+        if (gpuFramebuffer.gpuDepthStencilView.gpuTexture.isSwapchainTexture) {
+            gpuFramebuffer.isOffscreen = false;
+        } else {
+            pureOnscreen = false;
+        }
+    }
+
+    if (pureOnscreen) {
+        // return;
     }
 
     const { gl } = device;
@@ -1747,12 +1782,14 @@ export function WebGL2CmdFuncDestroyInputAssembler (device: WebGL2Device, gpuInp
 interface IWebGL2StateCache {
     gpuPipelineState: IWebGL2GPUPipelineState | null;
     gpuInputAssembler: IWebGL2GPUInputAssembler | null;
+    gpuFramebuffer: IWebGL2GPUFramebuffer | null;
     glPrimitive: number;
     invalidateAttachments: GLenum[];
 }
 const gfxStateCache: IWebGL2StateCache = {
     gpuPipelineState: null,
     gpuInputAssembler: null,
+    gpuFramebuffer: null,
     glPrimitive: 0,
     invalidateAttachments: [],
 };
@@ -1768,6 +1805,10 @@ export function WebGL2CmdFuncBeginRenderPass (
 ) {
     const { gl } = device;
     const cache = device.stateCache;
+
+    if (gfxStateCache.gpuFramebuffer !== gpuFramebuffer) {
+        gfxStateCache.gpuFramebuffer = gpuFramebuffer;
+    }
 
     let clears: GLbitfield = 0;
 
@@ -1921,6 +1962,52 @@ export function WebGL2CmdFuncBeginRenderPass (
             }
         }
     } // if (gpuFramebuffer)
+}
+
+export function WebGL2CmdFuncEndRenderPass (
+    device: WebGL2Device,
+) {
+    const gpuFramebuffer = gfxStateCache.gpuFramebuffer;
+
+    if (!gpuFramebuffer) {
+        return;
+    }
+
+    let pureOnscreen = true;
+
+    for (let i = 0; i < gpuFramebuffer.gpuColorViews.length; ++i) {
+        const tex = gpuFramebuffer.gpuColorViews[i].gpuTexture;
+        if (!tex.isSwapchainTexture) {
+            pureOnscreen = false;
+        }
+    }
+
+    if (gpuFramebuffer.gpuDepthStencilView) {
+        if (!gpuFramebuffer.gpuDepthStencilView.gpuTexture.isSwapchainTexture) {
+            pureOnscreen = true;
+        }
+    }
+
+    if (pureOnscreen) {
+        // return;
+    }
+
+    if (!gpuFramebuffer.isOffscreen) {
+        const dstFbo : IWebGL2GPUFramebuffer = {
+            gpuRenderPass: null!,
+            gpuColorViews: [],
+            gpuDepthStencilView: null,
+            glFramebuffer: null,
+            isOffscreen: false,
+            width: 0,
+            height: 0,
+        };
+
+        const srcRect = new Rect(0, 0, gpuFramebuffer.width, gpuFramebuffer.height);
+        const dstRect = new Rect(0, 0, gpuFramebuffer.width, gpuFramebuffer.height);
+
+        WebGL2CmdFuncBlitFramebuffer(device, gpuFramebuffer, dstFbo, srcRect, dstRect, Filter.POINT);
+    }
 }
 
 export function WebGL2CmdFuncBindStates (
@@ -2544,13 +2631,11 @@ export function WebGL2CmdFuncExecuteCmds (device: WebGL2Device, cmdPackage: WebG
                 cmd0.clearColors, cmd0.clearDepth, cmd0.clearStencil);
             break;
         }
-        /*
-            case WebGL2Cmd.END_RENDER_PASS: {
-                // WebGL 2.0 doesn't support store operation of attachments.
-                // StoreOp.Store is the default GL behavior.
-                break;
-            }
-            */
+        case WebGL2Cmd.END_RENDER_PASS: {
+            const cmd1 = cmdPackage.endRenderPassCmds.array[cmdId];
+            WebGL2CmdFuncEndRenderPass(device);
+            break;
+        }
         case WebGL2Cmd.BIND_STATES: {
             const cmd2 = cmdPackage.bindStatesCmds.array[cmdId];
             WebGL2CmdFuncBindStates(device, cmd2.gpuPipelineState, cmd2.gpuInputAssembler,

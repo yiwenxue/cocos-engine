@@ -1559,6 +1559,24 @@ static void doCreateFramebufferInstance(GLES3Device *device, GLES3GPUFramebuffer
                                         uint32_t depthStencil, GLES3GPUFramebuffer::Framebuffer *outFBO,
                                         const uint32_t *resolves = nullptr, uint32_t depthStencilResolve = INVALID_BINDING) {
     GLES3GPUSwapchain *swapchain{getSwapchainIfExists(gpuFBO->gpuColorViews, colors.data(), colors.size())};
+    bool directOnscreen = true;
+
+    for (auto *colorImg : gpuFBO->gpuColorViews) {
+        if (colorImg->gpuTexture->swapchain == nullptr || !colorImg->gpuTexture->memoryless) {
+            directOnscreen = false;
+            break;
+        }
+    }
+
+    if (gpuFBO->gpuDepthStencilView->gpuTexture->swapchain == nullptr || !gpuFBO->gpuDepthStencilView->gpuTexture->memoryless) {
+        directOnscreen = false;
+    }
+
+    if (directOnscreen) {
+        outFBO->framebuffer.initialize(swapchain);
+        return;
+    }
+
     const GLES3GPUTextureView *depthStencilTextureView = nullptr;
     if (depthStencil != INVALID_BINDING) {
         depthStencilTextureView = depthStencil < gpuFBO->gpuColorViews.size()
@@ -2119,23 +2137,40 @@ void cmdFuncGLES3EndRenderPass(GLES3Device *device) {
         invalidateTarget = GL_READ_FRAMEBUFFER;
     }
 
+    // blit only if the fbo is not a pure on screen fbo
+    bool directOnscreen = true;
     for (auto *colorImg : gpuFramebuffer->gpuColorViews) {
-        if (colorImg->gpuTexture->swapchain) {
-            TextureBlit region;
-            auto *blitSrc = colorImg->gpuTexture;
-            auto *blitDst = blitSrc;
-            region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-            region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-            cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        if (colorImg->gpuTexture->swapchain == nullptr || !colorImg->gpuTexture->memoryless) {
+            directOnscreen = false;
+            break;
         }
     }
-    if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain) {
-        TextureBlit region;
-        auto *blitSrc = gpuFramebuffer->gpuDepthStencilView->gpuTexture;
-        auto *blitDst = blitSrc;
-        region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-        region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-        cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+
+    if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain == nullptr || !gpuFramebuffer->gpuDepthStencilView->gpuTexture->memoryless) {
+        directOnscreen = false;
+    }
+
+    if (!directOnscreen) {
+        for (auto *colorImg : gpuFramebuffer->gpuColorViews) {
+            if (colorImg->gpuTexture->swapchain) {
+                TextureBlit region;
+                auto *blitSrc = colorImg->gpuTexture;
+                auto *blitDst = blitSrc;
+                region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+                region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+                cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+            }
+        }
+        // If the fbo is not direct on screen, dont need to blit depth buffer
+
+        // if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain) {
+        //     TextureBlit region;
+        //     auto *blitSrc = gpuFramebuffer->gpuDepthStencilView->gpuTexture;
+        //     auto *blitDst = blitSrc;
+        //     region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+        //     region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+        //     cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
+        // }
     }
 
     uint32_t glAttachmentIndex = 0U;

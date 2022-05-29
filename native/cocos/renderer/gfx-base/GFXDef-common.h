@@ -31,6 +31,10 @@
 #include "base/std/container/vector.h"
 #include "math/Math.h"
 
+#ifndef ENABLE_DEPTH
+    #define ENABLE_DEPTH true
+#endif
+
 /**
  * Some general guide lines:
  * Always use explicit numeric types rather than `int`, `long`, etc. for a stable memory layout
