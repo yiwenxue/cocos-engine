@@ -1608,6 +1608,8 @@ static void doCreateFramebufferInstance(GLES3Device *device, GLES3GPUFramebuffer
 }
 
 void cmdFuncGLES3CreateFramebuffer(GLES3Device *device, GLES3GPUFramebuffer *gpuFBO) {
+    bool msaaEnabled{false};
+
     if (gpuFBO->gpuRenderPass->subpasses.size() > 1) {
         gpuFBO->usesFBF = device->constantRegistry()->mFBF != FBFSupportLevel::NONE;
     }
@@ -2138,39 +2140,15 @@ void cmdFuncGLES3EndRenderPass(GLES3Device *device) {
     }
 
     // blit only if the fbo is not a pure on screen fbo
-    bool directOnscreen = true;
     for (auto *colorImg : gpuFramebuffer->gpuColorViews) {
-        if (colorImg->gpuTexture->swapchain == nullptr || !colorImg->gpuTexture->memoryless) {
-            directOnscreen = false;
-            break;
+        if (colorImg->gpuTexture->swapchain && !colorImg->gpuTexture->memoryless) {
+            TextureBlit region;
+            auto *blitSrc = colorImg->gpuTexture;
+            auto *blitDst = blitSrc;
+            region.srcExtent.width = region.dstExtent.width = blitSrc->width;
+            region.srcExtent.height = region.dstExtent.height = blitSrc->height;
+            cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
         }
-    }
-
-    if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain == nullptr || !gpuFramebuffer->gpuDepthStencilView->gpuTexture->memoryless) {
-        directOnscreen = false;
-    }
-
-    if (!directOnscreen) {
-        for (auto *colorImg : gpuFramebuffer->gpuColorViews) {
-            if (colorImg->gpuTexture->swapchain) {
-                TextureBlit region;
-                auto *blitSrc = colorImg->gpuTexture;
-                auto *blitDst = blitSrc;
-                region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-                region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-                cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
-            }
-        }
-        // If the fbo is not direct on screen, dont need to blit depth buffer
-
-        // if (gpuFramebuffer->gpuDepthStencilView->gpuTexture->swapchain) {
-        //     TextureBlit region;
-        //     auto *blitSrc = gpuFramebuffer->gpuDepthStencilView->gpuTexture;
-        //     auto *blitDst = blitSrc;
-        //     region.srcExtent.width = region.dstExtent.width = blitSrc->width;
-        //     region.srcExtent.height = region.dstExtent.height = blitSrc->height;
-        //     cmdFuncGLES3BlitTexture(device, blitSrc, blitDst, &region, 1, Filter::POINT);
-        // }
     }
 
     uint32_t glAttachmentIndex = 0U;
@@ -2210,6 +2188,150 @@ void cmdFuncGLES3EndRenderPass(GLES3Device *device) {
 
         cmdFuncGLES3MemoryBarrier(device, gpuRenderPass->barriers.back().glBarriers, gpuRenderPass->barriers.back().glBarriersByRegion);
     }
+}
+
+void GLES3GPUBlitManager::initialize() {
+    _gpuShader.name = "Blit Pass";
+    _gpuShader.blocks.push_back({
+        0,
+        0,
+        "BlitParams",
+        {
+            {"tilingOffsetSrc", Type::FLOAT4, 1},
+            {"tilingOffsetDst", Type::FLOAT4, 1},
+        },
+        1,
+    });
+    _gpuShader.samplerTextures.push_back({0, 1, "textureSrc", Type::SAMPLER2D, 1});
+    _gpuShader.gpuStages.push_back({ShaderStageFlagBit::VERTEX, R"(
+        precision mediump float;
+
+        attribute vec2 a_position;
+        attribute vec2 a_texCoord;
+
+        uniform vec4 tilingOffsetSrc;
+        uniform vec4 tilingOffsetDst;
+
+        varying vec2 v_texCoord;
+
+        void main() {
+            v_texCoord = a_texCoord * tilingOffsetSrc.xy + tilingOffsetSrc.zw;
+            gl_Position = vec4((a_position + 1.0) * tilingOffsetDst.xy - 1.0 + tilingOffsetDst.zw * 2.0, 0, 1);
+        }
+    )"});
+    _gpuShader.gpuStages.push_back({ShaderStageFlagBit::FRAGMENT, R"(
+        precision mediump float;
+
+        uniform sampler2D textureSrc;
+
+        varying vec2 v_texCoord;
+
+        void main() {
+            gl_FragColor = texture2D(textureSrc, v_texCoord);
+        }
+    )"});
+    cmdFuncGLES3CreateShader(GLES3Device::getInstance(), &_gpuShader);
+
+    _gpuDescriptorSetLayout.descriptorCount = 2;
+    _gpuDescriptorSetLayout.bindingIndices = {0, 1};
+    _gpuDescriptorSetLayout.descriptorIndices = {0, 1};
+    _gpuDescriptorSetLayout.bindings.push_back({0, DescriptorType::UNIFORM_BUFFER, 1, ShaderStageFlagBit::VERTEX});
+    _gpuDescriptorSetLayout.bindings.push_back({1, DescriptorType::SAMPLER_TEXTURE, 1, ShaderStageFlagBit::FRAGMENT});
+
+    _gpuPipelineLayout.setLayouts.push_back(&_gpuDescriptorSetLayout);
+    _gpuPipelineLayout.dynamicOffsetIndices.emplace_back();
+    _gpuPipelineLayout.dynamicOffsetOffsets.push_back(0);
+
+    _gpuPipelineState.glPrimitive = GL_TRIANGLE_STRIP;
+    _gpuPipelineState.gpuShader = &_gpuShader;
+    _gpuPipelineState.dss.depthTest = false;
+    _gpuPipelineState.dss.depthWrite = false;
+    _gpuPipelineState.gpuPipelineLayout = &_gpuPipelineLayout;
+
+    _gpuVertexBuffer.usage = BufferUsage::VERTEX;
+    _gpuVertexBuffer.memUsage = MemoryUsage::DEVICE;
+    _gpuVertexBuffer.size = 16 * sizeof(float);
+    _gpuVertexBuffer.stride = 4 * sizeof(float);
+    _gpuVertexBuffer.count = 4;
+    cmdFuncGLES3CreateBuffer(GLES3Device::getInstance(), &_gpuVertexBuffer);
+    float data[]{
+        -1.F, -1.F, 0.F, 0.F,
+        1.F, -1.F, 1.F, 0.F,
+        -1.F, 1.F, 0.F, 1.F,
+        1.F, 1.F, 1.F, 1.F};
+    cmdFuncGLES3UpdateBuffer(GLES3Device::getInstance(), &_gpuVertexBuffer, data, 0, sizeof(data));
+
+    _gpuInputAssembler.attributes.push_back({"a_position", Format::RG32F});
+    _gpuInputAssembler.attributes.push_back({"a_texCoord", Format::RG32F});
+    _gpuInputAssembler.gpuVertexBuffers.push_back(&_gpuVertexBuffer);
+    cmdFuncGLES3CreateInputAssembler(GLES3Device::getInstance(), &_gpuInputAssembler);
+
+    _gpuPointSampler.minFilter = Filter::POINT;
+    _gpuPointSampler.magFilter = Filter::POINT;
+    cmdFuncGLES3PrepareSamplerInfo(GLES3Device::getInstance(), &_gpuPointSampler);
+
+    _gpuLinearSampler.minFilter = Filter::LINEAR;
+    _gpuLinearSampler.magFilter = Filter::LINEAR;
+    cmdFuncGLES3PrepareSamplerInfo(GLES3Device::getInstance(), &_gpuLinearSampler);
+
+    _gpuUniformBuffer.usage = BufferUsage::UNIFORM;
+    _gpuUniformBuffer.memUsage = MemoryUsage::DEVICE | MemoryUsage::HOST;
+    _gpuUniformBuffer.size = 8 * sizeof(float);
+    _gpuUniformBuffer.stride = 8 * sizeof(float);
+    _gpuUniformBuffer.count = 1;
+    cmdFuncGLES3CreateBuffer(GLES3Device::getInstance(), &_gpuUniformBuffer);
+
+    _gpuDescriptorSet.gpuDescriptors.push_back({DescriptorType::UNIFORM_BUFFER, &_gpuUniformBuffer});
+    _gpuDescriptorSet.gpuDescriptors.push_back({DescriptorType::SAMPLER_TEXTURE});
+    _gpuDescriptorSet.descriptorIndices = &_gpuDescriptorSetLayout.descriptorIndices;
+
+    _drawInfo.vertexCount = 4;
+}
+
+void GLES3GPUBlitManager::draw(GLES3GPUTextureView *gpuTextureSrc, GLES3GPUTextureView *gpuTextureDst,
+                               const TextureBlit *regions, uint32_t count, Filter filter) {
+    GLES3GPUDescriptorSet *gpuDescriptorSet = &_gpuDescriptorSet;
+    GLES3Device *device = GLES3Device::getInstance();
+    auto &descriptor = _gpuDescriptorSet.gpuDescriptors.back();
+
+    descriptor.gpuTextureView = gpuTextureSrc;
+    descriptor.gpuSampler = filter == Filter::POINT ? &_gpuPointSampler : &_gpuLinearSampler;
+    for (uint32_t i = 0U; i < count; ++i) {
+        const auto &region = regions[i];
+
+        auto srcWidth = static_cast<float>(gpuTextureSrc->gpuTexture->width);
+        auto srcHeight = static_cast<float>(gpuTextureSrc->gpuTexture->height);
+        auto dstWidth = static_cast<float>(gpuTextureDst->gpuTexture->width);
+        auto dstHeight = static_cast<float>(gpuTextureDst->gpuTexture->height);
+
+        _uniformBuffer[0] = static_cast<float>(region.srcExtent.width) / srcWidth;
+        _uniformBuffer[1] = static_cast<float>(region.srcExtent.height) / srcHeight;
+        _uniformBuffer[2] = static_cast<float>(region.srcOffset.x) / srcWidth;
+        _uniformBuffer[3] = static_cast<float>(region.srcOffset.y) / srcHeight;
+        _uniformBuffer[4] = static_cast<float>(region.dstExtent.width) / dstWidth;
+        _uniformBuffer[5] = static_cast<float>(region.dstExtent.height) / dstHeight;
+        _uniformBuffer[6] = static_cast<float>(region.dstOffset.x) / dstWidth;
+        _uniformBuffer[7] = static_cast<float>(region.dstOffset.y) / dstHeight;
+
+        ensureScissorRect(device->stateCache(), region.dstOffset.x, region.dstOffset.y, region.dstExtent.width, region.dstExtent.height);
+
+        cmdFuncGLES3UpdateBuffer(device, &_gpuUniformBuffer, _uniformBuffer, 0, sizeof(_uniformBuffer));
+        cmdFuncGLES3BindState(device, &_gpuPipelineState, &_gpuInputAssembler, &gpuDescriptorSet);
+        cmdFuncGLES3Draw(device, _drawInfo);
+    }
+}
+
+void GLES3GPUBlitManager::destroy() {
+    GLES3Device *device = GLES3Device::getInstance();
+    cmdFuncGLES3DestroyBuffer(device, &_gpuVertexBuffer);
+    cmdFuncGLES3DestroyInputAssembler(device, &_gpuInputAssembler);
+    cmdFuncGLES3DestroyBuffer(device, &_gpuVertexBuffer);
+    cmdFuncGLES3DestroyShader(device, &_gpuShader);
+}
+
+void cmdFuncGLES3BlitTextureToMSAA(GLES3Device *device, GLES3GPUTextureView *gpuTextureSrc, GLES3GPUTextureView *gpuTextureDst,
+                                   const TextureBlit *regions, uint32_t count, Filter filter) {
+    device->blitManager()->draw(gpuTextureSrc, gpuTextureDst, regions, count, filter);
 }
 
 // NOLINTNEXTLINE(google-readability-function-size, readability-function-size)

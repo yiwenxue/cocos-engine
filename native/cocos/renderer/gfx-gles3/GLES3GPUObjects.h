@@ -542,6 +542,28 @@ private:
     bool _initialized{false};
 };
 
+class GLES3GPUBlitManager final {
+public:
+    void initialize();
+    void destroy();
+    void draw(GLES3GPUTextureView *gpuTextureSrc, GLES3GPUTextureView *gpuTextureDst, const TextureBlit *regions, uint32_t count, Filter filter);
+
+private:
+    GLES3GPUShader _gpuShader;
+    GLES3GPUDescriptorSetLayout _gpuDescriptorSetLayout;
+    GLES3GPUPipelineLayout _gpuPipelineLayout;
+    GLES3GPUPipelineState _gpuPipelineState;
+
+    GLES3GPUBuffer _gpuVertexBuffer;
+    GLES3GPUInputAssembler _gpuInputAssembler;
+    GLES3GPUSampler _gpuPointSampler;
+    GLES3GPUSampler _gpuLinearSampler;
+    GLES3GPUBuffer _gpuUniformBuffer;
+    GLES3GPUDescriptorSet _gpuDescriptorSet;
+    DrawInfo _drawInfo;
+    float _uniformBuffer[8];
+};
+
 class GLES3GPUFramebufferCacheMap final {
 public:
     explicit GLES3GPUFramebufferCacheMap(GLES3GPUStateCache *cache) : _cache(cache) {}
