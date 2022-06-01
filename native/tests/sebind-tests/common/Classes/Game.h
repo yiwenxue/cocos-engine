@@ -1,5 +1,5 @@
 /****************************************************************************
- Copyright (c) 2021-2022 Xiamen Yaji Software Co., Ltd.
+ Copyright (c) 2018 Xiamen Yaji Software Co., Ltd.
 
  http://www.cocos.com
 
@@ -21,16 +21,22 @@
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
-****************************************************************************/
+ ****************************************************************************/
+#pragma once
+
+#include "cocos/cocos.h"
 
 /**
- * ========================= !DO NOT CHANGE THE FOLLOWING SECTION MANUALLY! =========================
- * The following section is auto-generated.
- * ========================= !DO NOT CHANGE THE FOLLOWING SECTION MANUALLY! =========================
+ @brief    The cocos2d Application.
+ 
+ The reason for implement as private inheritance is to hide some interface call by Director.
  */
-// clang-format off
-#pragma once
-#include "cocos/renderer/pipeline/custom/NativePipelineFwd.h"
-#include "cocos/renderer/pipeline/custom/RenderCompilerReflection.h"
-
-// clang-format on
+class Game : public cc::BaseGame {
+public:
+    Game();
+    int init() override;
+    //bool init() override;
+    void onPause() override;
+    void onResume() override;
+    void onClose() override;
+};

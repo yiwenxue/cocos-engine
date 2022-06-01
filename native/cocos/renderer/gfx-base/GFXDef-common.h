@@ -34,6 +34,11 @@
 #ifndef ENABLE_DEPTH
     #define ENABLE_DEPTH true
 #endif
+#ifdef Status
+// Fix linux compile errors 
+// In /usr/include/X11/Xlib.h Status defined as int
+#undef Status
+#endif
 
 /**
  * Some general guide lines:
@@ -891,6 +896,7 @@ struct TextureBlit {
 using TextureBlitList = ccstd::vector<TextureBlit>;
 
 struct BufferTextureCopy {
+    uint32_t buffOffset{0};
     uint32_t buffStride{0};
     uint32_t buffTexHeight{0};
     Offset texOffset;
