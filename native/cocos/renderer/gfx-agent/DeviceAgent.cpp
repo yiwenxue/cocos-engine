@@ -24,10 +24,10 @@
 ****************************************************************************/
 
 #include <cstring>
-#include <numeric>
 #include "base/Log.h"
 #include "base/threading/MessageQueue.h"
 #include "base/threading/ThreadSafeLinearAllocator.h"
+#include <boost/align/align_up.hpp>
 
 #include "BufferAgent.h"
 #include "CommandBufferAgent.h"
@@ -286,21 +286,15 @@ void doBufferTextureCopy(const uint8_t *const *buffers, Texture *texture, const 
         bufferCount += regions[i].texSubres.layerCount;
     }
     
-    auto alignTo = [](size_t size, uint32_t alignment) {
-        return (size + alignment - 1) / alignment * alignment;
-    };
-    
     Format format = texture->getFormat();
-    uint32_t dataRequestAlignment = formatSize(format, 1, 1, 1); //block size
-    uint32_t systemDefaultAlignment = 16;
-    uint32_t alignment = static_cast<uint32_t>(lcm(dataRequestAlignment, systemDefaultAlignment));
-
-    size_t totalSize = alignTo(sizeof(BufferTextureCopy) * count + sizeof(uint8_t *) * bufferCount, alignment);
+    constexpr uint32_t alignment = 16;
+    
+    size_t totalSize = boost::alignment::align_up(sizeof(BufferTextureCopy) * count + sizeof(uint8_t *) * bufferCount, alignment);
     for (uint32_t i = 0U; i < count; i++) {
         const BufferTextureCopy &region = regions[i];
 
         uint32_t size = formatSize(texture->getFormat(), region.texExtent.width, region.texExtent.height, region.texExtent.depth);
-        totalSize += alignTo(size, alignment) * region.texSubres.layerCount;
+        totalSize += boost::alignment::align_up(size, alignment) * region.texSubres.layerCount;
     }
 
     auto *memory = CC_MALLOC_ALIGN(sizeof(ThreadSafeLinearAllocator), alignof(ThreadSafeLinearAllocator));
