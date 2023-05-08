@@ -79,14 +79,14 @@ export function InitPhysXLibs () {
 function initASM () {
     globalThis.PhysX = globalThis.PHYSX ? globalThis.PHYSX : asmFactory;
     if (globalThis.PhysX != null) {
-        return globalThis.PhysX({}).then((Instance: any) => {
+        return globalThis.PhysX().then((Instance: any) => {
             if (!EDITOR && !TEST) console.info('[PHYSICS]:', `${USE_EXTERNAL_PHYSX ? 'External' : 'Internal'} PhysX asm libs loaded.`);
             initAdaptWrapper(Instance);
             initConfigAndCacheObject(Instance);
             Object.assign(PX, Instance);
         }, (reason: any) => { console.error('[PHYSICS]:', `PhysX asm load failed: ${reason}`); });
     } else {
-        if (!EDITOR && !TEST) console.info('[PHYSICS]:', 'Failed to load PhysX js libs, package may be not found.');
+        if (!EDITOR && !TEST) console.error('[PHYSICS]:', 'Failed to load PhysX js libs, package may be not found.');
         return new Promise<void>((resolve, reject) => {
             resolve();
         });
@@ -110,7 +110,7 @@ function initWASM () {
             Object.assign(PX, Instance);
         }, (reason: any) => { console.error('[PHYSICS]:', `PhysX wasm load failed: ${reason}`); });
     } else {
-        if (!EDITOR && !TEST) console.info('[PHYSICS]:', 'Failed to load PhysX wasm libs, package may be not found.');
+        if (!EDITOR && !TEST) console.error('[PHYSICS]:', 'Failed to load PhysX wasm libs, package may be not found.');
         return new Promise<void>((resolve, reject) => {
             resolve();
         });
