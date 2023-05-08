@@ -30,9 +30,11 @@
 /* eslint-disable no-lonely-if */
 /* eslint-disable import/order */
 
-import { PhysX } from './physx.asmjs';
-import { BYTEDANCE, DEBUG, EDITOR, TEST } from 'internal:constants';
-import { IQuatLike, IVec3Like, Quat, RecyclePool, Vec3, cclegacy, geometry, Settings, settings } from '../../core';
+import { asmFactory } from './physx.asmjs';
+import { wasmFactory, PhysXWasmUrl } from './physx.wasmjs';
+import { WebAssemblySupportMode } from '../../misc/webassembly-support';
+import { BYTEDANCE, DEBUG, EDITOR, TEST, WASM_SUPPORT_MODE } from 'internal:constants';
+import { IQuatLike, IVec3Like, Quat, RecyclePool, Vec3, cclegacy, geometry, Settings, settings, sys } from '../../core';
 import { shrinkPositions } from '../utils/util';
 import { IRaycastOptions } from '../spec/i-physics-world';
 import { IPhysicsConfig, PhysicsRayResult, PhysicsSystem } from '../framework';
@@ -62,22 +64,58 @@ export function InitPhysXLibs () {
         initConfigAndCacheObject(PX);
     } else {
         if (!EDITOR && !TEST) console.info('[PHYSICS]:', 'Use PhysX js or wasm Libs.');
-        return initPhysXWithJsModule();
+        if (WASM_SUPPORT_MODE === WebAssemblySupportMode.MAYBE_SUPPORT) {
+            if (sys.hasFeature(sys.Feature.WASM)) {
+                return initWASM();
+            } else {
+                return initASM();
+            }
+        } else if (WASM_SUPPORT_MODE === WebAssemblySupportMode.SUPPORT) {
+            return initASM();
+        }
     }
 }
 
-function initPhysXWithJsModule () {
-    // If external PHYSX not given, then try to use internal PhysX libs.
-    globalThis.PhysX = globalThis.PHYSX ? globalThis.PHYSX : PhysX;
+function initASM () {
+    globalThis.PhysX = globalThis.PHYSX ? globalThis.PHYSX : asmFactory;
     if (globalThis.PhysX != null) {
-        return globalThis.PhysX().then((Instance: any) => {
+        return globalThis.PhysX({}).then((Instance: any) => {
             if (!EDITOR && !TEST) console.info('[PHYSICS]:', `${USE_EXTERNAL_PHYSX ? 'External' : 'Internal'} PhysX libs loaded.`);
             initAdaptWrapper(Instance);
             initConfigAndCacheObject(Instance);
             Object.assign(PX, Instance);
         }, (reason: any) => { console.error('[PHYSICS]:', `PhysX load failed: ${reason}`); });
     } else {
-        if (!EDITOR) console.error('[PHYSICS]:', 'Not Found PhysX js or wasm Libs.');
+        if (!EDITOR && !TEST) console.info('[PHYSICS]:', 'Failed to load PhysX js libs, package may be not found.');
+        return new Promise<void>((resolve, reject) => {
+            resolve();
+        });
+    }
+}
+
+function initWASM () {
+    globalThis.PhysX = globalThis.PHYSX ? globalThis.PHYSX : wasmFactory;
+    if (globalThis.PhysX != null) {
+        return globalThis.PhysX({
+            locateFile: (path: string) => {
+                console.log('locate wasm: ', path);
+                if (path.endsWith('.wasm')) {
+                    console.log('real wasm: ', PhysXWasmUrl);
+                    return PhysXWasmUrl;
+                }
+                return path;
+            },
+        }).then((Instance: any) => {
+            if (!EDITOR && !TEST) console.info('[PHYSICS]:', `${USE_EXTERNAL_PHYSX ? 'External' : 'Internal'} PhysX libs loaded.`);
+            initAdaptWrapper(Instance);
+            initConfigAndCacheObject(Instance);
+            Object.assign(PX, Instance);
+        }, (reason: any) => { console.error('[PHYSICS]:', `PhysX load failed: ${reason}`); });
+    } else {
+        if (!EDITOR && !TEST) console.info('[PHYSICS]:', 'Failed to load PhysX wasm libs, package may be not found.');
+        return new Promise<void>((resolve, reject) => {
+            resolve();
+        });
     }
 }
 
