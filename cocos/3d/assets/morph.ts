@@ -25,6 +25,8 @@
 import { AttributeName } from '../../gfx';
 import { Mesh } from './mesh';
 
+const temp = 'lalalala';
+
 /**
  * @en Morph target contains all displacements data of each vertex attribute like position and normal.
  * @zh 形变目标数据包含网格顶点属性在形变下的变化值，可能包含位移、法线等属性
