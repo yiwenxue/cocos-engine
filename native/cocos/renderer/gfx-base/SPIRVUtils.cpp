@@ -146,7 +146,7 @@ void SPIRVUtils::compileGLSL(ShaderStageFlagBit type, const ccstd::string &sourc
 
     spvOptions.disableOptimizer = false;
     spvOptions.optimizeSize = true;
-    spvOptions.stripDebugInfo = true;
+    spvOptions.stripDebugInfo = false;
 #if CC_DEBUG > 0
     // spvOptions.validate = true;
 #else
