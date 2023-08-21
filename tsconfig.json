@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es6",
-    "lib": ["es2015", "es2017", "dom"],
+    "lib": [
+      "es2015",
+      "es2017",
+      "dom"
+    ],
     "module": "commonjs",
     "sourceMap": true,
     "outDir": "./bin/.ts",
@@ -16,9 +20,9 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": "./",
     "paths": {
-        "cc.decorator": [
-            "cocos/core/data/decorators/index.ts"
-        ]
+      "cc.decorator": [
+        "cocos/core/data/decorators/index.ts"
+      ]
     },
     "types": [
       "./@types/globals",
@@ -29,14 +33,14 @@
       "./@types/webGL2.extras",
       "./node_modules/@cocos/cannon/CANNON",
       "./node_modules/@types/jest/index",
-
       // external types
       "./native/external/emscripten/external-wasm",
       "./native/external/emscripten/bullet/bullet",
       "./native/external/emscripten/physx/physx",
       "./native/external/emscripten/webgpu/webgpu",
       "./native/external/emscripten/spine/spine",
-
+      "./native/external/emscripten/meshopt/meshopt_decoder",
+      "./native/external/emscripten/box2d/box2d",
       // pal
       "./@types/pal/system-info",
       "./@types/pal/screen-adapter",
@@ -50,8 +54,8 @@
     ]
   },
   "include": [
-      "exports/**/*.ts",
-      "typedoc-index.ts",
-      "pal/**/*.ts"
+    "exports/**/*.ts",
+    "typedoc-index.ts",
+    "pal/**/*.ts"
   ]
 }

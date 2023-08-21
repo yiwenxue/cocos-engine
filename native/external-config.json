@@ -1,8 +1,8 @@
 {
-    "from": {
-        "type": "github",
-        "owner": "cocos-creator",
-        "name": "engine-native-external",
-        "checkout": "develop-28"
-    }
+        "from": {
+                "type": "github",
+                "owner": "cocos-creator",
+                "name": "engine-native-external",
+                "checkout": "v3.8.1-12"
+        }
 }

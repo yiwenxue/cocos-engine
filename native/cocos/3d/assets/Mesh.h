@@ -202,6 +202,12 @@ public:
          * @zh 是否支持 GPU Scene
          */
         ccstd::optional<bool> supportGPUScene;
+
+        ccstd::optional<bool> encoded;
+
+        ccstd::optional<bool> compressed;
+
+        ccstd::optional<bool> quantized;
     };
 
     struct ICreateInfo {
