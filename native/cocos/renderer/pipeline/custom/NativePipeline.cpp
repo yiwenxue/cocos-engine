@@ -1266,7 +1266,7 @@ void NativePipeline::addBuiltinHzbGenerationPass(
         // uniforms
         auto &data = get(RenderGraph::DataTag{}, renderGraph, passID);
         setVec2Impl(
-            data, lg, "imageSize",
+            data, lg, "cc_imageSize",
             Vec2{
                 static_cast<float>(width),
                 static_cast<float>(height),
