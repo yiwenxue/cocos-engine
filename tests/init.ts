@@ -96,6 +96,13 @@ jest.mock(
     );
 });
 
+jest.mock('external:emscripten/meshopt/meshopt_decoder.wasm.wasm', 
+    () => ({
+        __esModule: true,
+        default: 'this should be a wasm url',
+    }),
+    { virtual: true, },
+);
 
 // Mock external wasm js module here
 [
