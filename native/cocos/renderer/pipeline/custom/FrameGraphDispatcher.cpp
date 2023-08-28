@@ -921,7 +921,7 @@ void extractNames(const ccstd::pmr::string &resName,
     // cube
 
     // array
-    
+
     if (names.empty()) {
         names.emplace_back(resName, 0);
     }
@@ -1037,7 +1037,7 @@ bool checkComputeViews(const Graphs &graphs, ResourceAccessGraph::vertex_descrip
             tryAddEdge(lastVertId, ragVertID, resourceAccessGraph);
             tryAddEdge(lastVertId, ragVertID, relationGraph);
             dependent = lastVertId != EXPECT_START_ID;
-            
+
             if (out_degree(resID, resourceGraph) && (computeView.plane != 0xFFFFFFFF)) {
                 const auto& subresFullName = getSubresNameByPlane(resName, computeView.plane, resourceGraph, resourceAccessGraph.resource());
                 resourceAccessGraph.resourceIndex.emplace(subresFullName, vertex(subresFullName, resourceGraph));
@@ -1597,9 +1597,13 @@ void startMovePass(const Graphs &graphs, uint32_t passID, const MovePass &pass) 
             auto &srcAccess = resourceAccessGraph.resourceAccess.at(pair.source);
             auto targetAccessIter = resourceAccessGraph.resourceAccess.find(pair.target);
 
+            srcAccess.erase(0);
             if (targetAccessIter != resourceAccessGraph.resourceAccess.end() && !targetAccessIter->second.empty()) {
                 auto lastAccessIter = targetAccessIter->second.rbegin();
                 srcAccess.emplace(lastAccessIter->first, AccessStatus{lastAccessIter->second.accessFlag, srcResourceRange});
+            } else {
+                const auto &lastStates = get(ResourceGraph::StatesTag{}, resourceGraph, targetResID);
+                srcAccess.emplace(0, AccessStatus{lastStates.states, srcResourceRange});
             }
 
             resourceAccessGraph.resourceIndex[pair.target] = targetResID;
@@ -1647,7 +1651,7 @@ void startScene(const Graphs &graphs, RenderGraph::vertex_descriptor sceneID, co
         // auto resID = findVertex(name, resourceGraph);
         // const auto &indirectBuffer = get(ManagedBufferTag{}, resID, resg).buffer.get();
         resourceAccessGraph.externalAccess[sceneID] = std::make_pair(name, gfx::AccessFlags::INDIRECT_BUFFER);
-    }   
+    }
 }
 
 struct DependencyVisitor : boost::dfs_visitor<> {
@@ -1964,7 +1968,7 @@ void buildBarriers(FrameGraphDispatcher &fgDispatcher) {
                     for (const auto &[src, ignored] : rag.movedTarget.at(sName)) {
                         const auto srcStart = rag.resourceAccess.at(src).begin()->first;
                         const auto srcEnd = rag.resourceAccess.at(src).rbegin()->first;
-                        interAccessed |= !((srcStart > endVert) || (srcEnd < startVert));
+                        interAccessed |= !((srcStart >= endVert) || (srcEnd <= startVert));
                         interAccessed |= interAccessCheck(src, startVert, endVert);
                         if (interAccessed) {
                             return true;
